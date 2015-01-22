@@ -32,6 +32,7 @@ app.get('/db', function (request, response) {
 
 app.post('/inbound', function(request, response){
     console.log(request.body);
+    response.end("yes");
 });
 
 app.listen(app.get('port'), function() {
