@@ -5,6 +5,14 @@ var pg = require('pg');
 var bodyParser = require('body-parser');
 var moment = require('moment');
 var bankParser = require('./lib/bank-parser');
+var stormpath = require('express-stormpath');
+
+app.use(stormpath.init(app, {
+    apiKeyId:     process.env.STORMPATH_API_KEY_ID,
+    apiKeySecret: process.env.STORMPATH_API_KEY_SECRET,
+    secretKey:    process.env.STORMPATH_SECRET_KEY,
+    application:  process.env.STORMPATH_URL,
+}));
 
 
 app.set('port', (process.env.PORT || 5000))
