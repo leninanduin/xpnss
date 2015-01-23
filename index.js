@@ -12,23 +12,6 @@ app.get('/', function(request, response) {
     response.send(cool());
 });
 
-app.get('/db', function (request, response) {
-    pg.connect(process.env.DATABASE_URL, function(err, client, done) {
-        if (err) {
-            console.error(err); response.send("Error " + err);
-        }
-        if (client) {
-            client.query('SELECT * FROM cash_operations', function(err, result) {
-                done();
-                if (err)
-                { console.error(err); response.send("Error " + err); }
-                else
-                { response.send(result.rows); }
-            });
-        }
-    });
-});
-
 // parse application/json
 app.use(bodyParser.json())
 app.post('/inbound', function(request, response){
@@ -41,7 +24,7 @@ app.post('/inbound', function(request, response){
         }
         if (client) {
 
-            client.query('INSERT into cash_operations (from_e, text, date) VALUES($1, $2, $3)',[request.body.From, request.body.StrippedTextReply, request.body.Date ] ,
+            client.query('INSERT into cash_operations (from_e, text, date) VALUES($1, $2, $3)',[request.body.From, request.body, request.body.Date ] ,
                 function(err, result) {
                 done();
                 if (err)
