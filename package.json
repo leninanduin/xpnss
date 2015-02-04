@@ -9,6 +9,7 @@
   "dependencies": {
     "body-parser": "1.10.x",
     "cool-ascii-faces": "~1.3.x",
+    "deferred": "^0.7.2",
     "express": "~4.9.x",
     "express-stormpath": "^0.6.3",
     "moment": "2.9.x",

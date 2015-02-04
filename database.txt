@@ -1,1 +1,2 @@
-create table cash_operations (user_email text, ammount decimal, type text, auth_num text, date timestamp, bank text );
+create table cash_operation (user_email text, ammount real, type text, auth_num text, date timestamp, bank text );
+create table registered_user (user_email text, full_name text, status text, has_new_operation smallint, last_operation_auth_num text, registered_date timestamp);
