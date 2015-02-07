@@ -2,13 +2,16 @@ var express = require('express')
 var app = express();
 // var cool = require('cool-ascii-faces');
 var pg = require('pg');
+var types = pg.types;
+types.setTypeParser(1114, function(stringValue) {return stringValue;});
+
 var bodyParser = require('body-parser');
-var moment = require('moment');
+var moment = require('moment-timezone');
 var deferred = require('deferred');
 var stormpath = require('express-stormpath');
 
 var bankParser = require('./lib/bank-parser');
-var userLib = require('./lib/user');
+var userF = require('./lib/user');
 
 app.use(stormpath.init(app, {
     apiKeyId:     process.env.STORMPATH_API_KEY_ID,
@@ -19,27 +22,26 @@ app.use(stormpath.init(app, {
     enableForgotPassword: true
 }));
 
+app.set('port', (process.env.PORT || 5000));
+// parse application/json
+app.use(bodyParser.json());
+
 //dashboard page
 app.get('/', stormpath.loginRequired, function(req, res) {
     pg.connect(process.env.DATABASE_URL, function(err, client, done_p) {
         if (err) {
-            console.error(err); response.send("Error " + err);
+            console.error(err); res.json({error: "DB error."});
         }
         if (client) {
-            var userIsRegistered, newUser;
-
             // check if the user is registeren in the app DB
-            userLib.isRegistered(req.user.email, client, deferred()).done(function(rs_userIsRegistered){
-                userIsRegistered = rs_userIsRegistered;
-                console.log('UserIsRegistered: ',userIsRegistered);
-
+            userF.isRegistered(req.user.email, client, deferred()).done(function(rs_userIsRegistered){
+                console.log('UserIsRegistered: ',rs_userIsRegistered);
                 // new user
-                if (userIsRegistered == 0) {
-                    userLib.register(req.user, client, done_p, deferred()).done(function(rs_NewUser){
-                        newUser = rs_NewUser;
+                if (rs_userIsRegistered == 0) {
+                    userF.register(req.user, client, done_p, deferred()).done(function(rs_NewUser){
                         if (newUser.name == 'error'){
                             console.log("Error creating the new user: ");
-                            console.log(newUser);
+                            console.log(rs_NewUser);
                         }else{
                             console.log("User was registered!")
                         }
@@ -54,11 +56,6 @@ app.get('/', stormpath.loginRequired, function(req, res) {
     res.send('Welcome!');
 });
 
-app.set('port', (process.env.PORT || 5000))
-
-// parse application/json
-app.use(bodyParser.json())
-
 //process and stores inconming emails
 app.post('/inbound', function(req, res){
     if (!req.body) {
@@ -69,12 +66,13 @@ app.post('/inbound', function(req, res){
     if (!opv.error){
         pg.connect(process.env.DATABASE_URL, function(err, client, done) {
             if (err) {
-                console.error(err); res.send("Error " + err);
+                console.error(err);
+                res.json({error: "DB error."});
             }
             if (client) {
                 // check if the user is registeren in the app DB, only emails from registered users are going to be sotored.
-                userLib.isRegistered(req.body.From, client, deferred()).done(function(rs_userIsRegistered){
-                    if (rs_userIsRegistered===1){
+                userF.isRegistered(req.body.From, client, deferred()).done(function(rs_userIsRegistered){
+                    if (rs_userIsRegistered===1) {
                         client.query('INSERT into cash_operation (user_email, ammount, type, auth_num, date, bank ) VALUES($1, $2, $3, $4, $5, $6); ',[req.body.From, opv.ammount, opv.type, opv.auth_num, opv.date, opv.bank  ] ,
                             function(err, result) {
                                 if( opv.user_has_new_operation === 1 ){
@@ -82,15 +80,14 @@ app.post('/inbound', function(req, res){
                                     console.log("the user has a new operation");
                                     client.query('UPDATE registered_user SET (has_new_operation, last_operation_auth_num) = ($1, $2); ',[opv.user_has_new_operation, opv.auth_num ] , function(err, result) { done();
                                         if (err)
-                                        { console.error(err); res.send("Error " + err); }
+                                        { console.error(err); }
                                     });
                                 }
-
                             done();
                             if (err)
-                            { console.error(err); res.send("Error " + err); }
+                            { console.error(err); }
                         });
-                    }else{
+                    } else {
                         console.log(req.body.From, ' is not registered in the app DB');
                     }
                 });
@@ -102,8 +99,25 @@ app.post('/inbound', function(req, res){
 
 //endpoint that the browser extension is goint to ask for new operations
 app.post('/has_new_operations', function(req, res) {
-    console.log(req);
-    res.send("blah");
+    pg.connect(process.env.DATABASE_URL, function(err, client, done) {
+        if (err) {
+            console.error(err);
+            res.json({error: "DB error."});
+        }
+        if (client) {
+            userF.isRegistered(req.body.user_email, client, deferred()).done(function(rs_userIsRegistered){
+                if (rs_userIsRegistered===1) {
+                    userF.hasNewOperation(req.body.user_email, client, deferred()).done(function(rs_hasNewOperation){
+                        console.log(rs_hasNewOperation);
+                        res.json(rs_hasNewOperation);
+                    });
+                }else{
+                    res.json({error: "User is not registered."});
+                }
+            });
+        }
+    });
+    // res.json(req.body);
 });
 
 app.listen(app.get('port'), function() {
