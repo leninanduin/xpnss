@@ -1,6 +1,5 @@
 var express = require('express')
 var app = express();
-// var cool = require('cool-ascii-faces');
 var pg = require('pg');
 var types = pg.types;
 types.setTypeParser(1114, function(stringValue) {return stringValue;});
@@ -9,6 +8,8 @@ var bodyParser = require('body-parser');
 var moment = require('moment-timezone');
 var deferred = require('deferred');
 var stormpath = require('express-stormpath');
+var passport = require('passport')
+  , FoursquareStrategy = require('passport-foursquare').Strategy;
 
 var bankParser = require('./lib/bank-parser');
 var userF = require('./lib/user');
@@ -23,7 +24,7 @@ app.use(stormpath.init(app, {
 }));
 
 app.set('port', (process.env.PORT || 5000));
-// parse application/json
+app.set('view engine', 'jade');
 app.use(bodyParser.json());
 
 //dashboard page
@@ -39,7 +40,7 @@ app.get('/', stormpath.loginRequired, function(req, res) {
                 // new user
                 if (rs_userIsRegistered == 0) {
                     userF.register(req.user, client, done_p, deferred()).done(function(rs_NewUser){
-                        if (newUser.name == 'error'){
+                        if (rs_NewUser.name == 'error'){
                             console.log("Error creating the new user: ");
                             console.log(rs_NewUser);
                         }else{
@@ -53,8 +54,34 @@ app.get('/', stormpath.loginRequired, function(req, res) {
     });
 
     console.log('User:', req.user.email, 'just accessed the /dashboard page!');
-    res.send('Welcome!');
+    res.render('index', { title: 'Hey', message: 'Hello there!'});
 });
+
+
+passport.use(new FoursquareStrategy({
+    clientID: 'SJWUBSC0ACELTRJRVT5SYYUQXGMKCRGME5JLA5TDJX0MO1BE',
+    clientSecret: '3CK4B2U4GBQ1YQ2RQDTY5KHWBNZMZBCKSWGYSAN5BFSPJKCQ',
+    callbackURL: "http://localhost:5000/settings/auth/foursquare"
+  },
+  function(accessToken, refreshToken, profile, done) {
+    User.findOrCreate({ foursquareId: profile.id }, function (err, user) {
+      return done(err, user);
+    });
+  }
+));
+
+app.get('/settings', stormpath.loginRequired, function(req, res) {
+    res.render('settings', { title: 'Hey', message: 'Hello there!'});
+});
+
+app.get('/auth/foursquare', passport.authenticate('foursquare'));
+
+app.get('/settings/auth/foursquare',
+  passport.authenticate('foursquare', { failureRedirect: '/login' }),
+  function(req, res) {
+    // Successful authentication, redirect home.
+    res.redirect('/');
+  });
 
 //process and stores inconming emails
 app.post('/inbound', function(req, res){
@@ -73,16 +100,9 @@ app.post('/inbound', function(req, res){
                 // check if the user is registeren in the app DB, only emails from registered users are going to be sotored.
                 userF.isRegistered(req.body.From, client, deferred()).done(function(rs_userIsRegistered){
                     if (rs_userIsRegistered===1) {
-                        client.query('INSERT into cash_operation (user_email, ammount, type, auth_num, date, bank ) VALUES($1, $2, $3, $4, $5, $6); ',[req.body.From, opv.ammount, opv.type, opv.auth_num, opv.date, opv.bank  ] ,
+                        client.query('INSERT into cash_operation (user_email, ammount, type, auth_num, date, bank, is_procesed ) VALUES($1, $2, $3, $4, $5, $6, $7); ',[req.body.From, opv.ammount, opv.type, opv.auth_num, opv.date, opv.bank, false  ] ,
                             function(err, result) {
-                                if( opv.user_has_new_operation === 1 ){
-                                    // the user has a new operation, we update the DB in order that the browser extension can make his work
-                                    console.log("the user has a new operation");
-                                    client.query('UPDATE registered_user SET (has_new_operation, last_operation_auth_num) = ($1, $2); ',[opv.user_has_new_operation, opv.auth_num ] , function(err, result) { done();
-                                        if (err)
-                                        { console.error(err); }
-                                    });
-                                }
+                                console.log("the user has a new operation");
                             done();
                             if (err)
                             { console.error(err); }
@@ -106,14 +126,35 @@ app.post('/has_new_operations', function(req, res) {
         }
         if (client) {
             userF.isRegistered(req.body.user_email, client, deferred()).done(function(rs_userIsRegistered){
-                if (rs_userIsRegistered===1) {
-                    userF.hasNewOperation(req.body.user_email, client, deferred()).done(function(rs_hasNewOperation){
-                        console.log(rs_hasNewOperation);
+                if (rs_userIsRegistered) {
+                    userF.hasNewOperation(req.body.user_email, client, deferred(), moment).done(function(rs_hasNewOperation){
                         res.json(rs_hasNewOperation);
                     });
                 }else{
                     res.json({error: "User is not registered."});
                 }
+            });
+        }
+    });
+    // res.json(req.body);
+});
+
+
+//endpoint that the browser extension is goint to ask for new operations
+app.post('/save_browser_events', function(req, res) {
+    pg.connect(process.env.DATABASE_URL, function(err, client, done) {
+        if (err) {
+            console.error(err);
+            res.json({error: "DB error."});
+        }
+        if (client) {
+            client.query('INSERT into event_browser (auth_num, history_elements ) VALUES($1, $2 ); ',[req.body.authNum, req.body.historyItems ] ,
+                function(err, result) {
+                    console.log("new event_browser!");
+                    res.json(req.body);
+                done();
+                if (err)
+                { console.error(err); res.json({error: "DB error."});}
             });
         }
     });
