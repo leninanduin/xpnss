@@ -64,9 +64,13 @@ passport.use(new FoursquareStrategy({
     callbackURL: "http://localhost:5000/settings/auth/foursquare"
   },
   function(accessToken, refreshToken, profile, done) {
-    User.findOrCreate({ foursquareId: profile.id }, function (err, user) {
-      return done(err, user);
-    });
+    console.log("accessToken");
+    console.log(accessToken);
+    console.log("profile");
+    console.log(profile);
+    //TODO: update user in the DB
+    var user = {foursquareAt: accessToken, foursquareId: profile.id};
+    return done(err, user);
   }
 ));
 
@@ -80,7 +84,9 @@ app.get('/settings/auth/foursquare',
   passport.authenticate('foursquare', { failureRedirect: '/login' }),
   function(req, res) {
     // Successful authentication, redirect home.
-    res.redirect('/');
+    // res.redirect('/');
+    console.log("/settings/auth/foursquare")
+    res.send(req);
   });
 
 //process and stores inconming emails

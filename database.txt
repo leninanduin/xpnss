@@ -1,5 +1,5 @@
 create table cash_operation (user_email text, ammount real, type text, auth_num text, date timestamp, bank text, is_procesed boolean );
-create table registered_user (user_email text, full_name text, status text, registered_date timestamp);
+create table registered_user (user_email text, full_name text, status text, fs_at text, fs_id text,registered_date timestamp);
 
 create table event_browser (auth_num text, history_elements json, user_page_selected json);
 
