@@ -1,93 +1,127 @@
 var express = require('express')
-var app = express();
-var pg = require('pg');
-var types = pg.types;
+    , app = express()
+    , pg = require('pg')
+    , types = pg.types
+    , bodyParser = require('body-parser')
+    , moment = require('moment-timezone')
+    , deferred = require('deferred')
+    , passport = require('passport')
+    , cookieParser = require('cookie-parser')
+    , methodOverride = require('method-override')
+    , session = require('express-session')
+    , FoursquareStrategy = require('passport-foursquare').Strategy
+    , bankParser = require('./lib/bank-parser')
+    , userF = require('./lib/user');
+
 types.setTypeParser(1114, function(stringValue) {return stringValue;});
 
-var bodyParser = require('body-parser');
-var moment = require('moment-timezone');
-var deferred = require('deferred');
-var stormpath = require('express-stormpath');
-var passport = require('passport')
-  , FoursquareStrategy = require('passport-foursquare').Strategy;
+var FOURSQUARE_CLIENT_ID = "SJWUBSC0ACELTRJRVT5SYYUQXGMKCRGME5JLA5TDJX0MO1BE"
+var FOURSQUARE_CLIENT_SECRET = "3CK4B2U4GBQ1YQ2RQDTY5KHWBNZMZBCKSWGYSAN5BFSPJKCQ";
 
-var bankParser = require('./lib/bank-parser');
-var userF = require('./lib/user');
+passport.serializeUser(function(user, done) {
+  done(null, user);
+});
 
-app.use(stormpath.init(app, {
-    apiKeyId:     process.env.STORMPATH_API_KEY_ID,
-    apiKeySecret: process.env.STORMPATH_API_KEY_SECRET,
-    secretKey:    process.env.STORMPATH_SECRET_KEY,
-    application:  process.env.STORMPATH_URL,
-    enableAccountVerification: true,
-    enableForgotPassword: true
-}));
+passport.deserializeUser(function(obj, done) {
+  done(null, obj);
+});
 
-app.set('port', (process.env.PORT || 5000));
-app.set('view engine', 'jade');
-app.use(bodyParser.json());
-
-//dashboard page
-app.get('/', stormpath.loginRequired, function(req, res) {
-    pg.connect(process.env.DATABASE_URL, function(err, client, done_p) {
-        if (err) {
-            console.error(err); res.json({error: "DB error."});
-        }
-        if (client) {
-            // check if the user is registeren in the app DB
-            userF.isRegistered(req.user.email, client, deferred()).done(function(rs_userIsRegistered){
-                console.log('UserIsRegistered: ',rs_userIsRegistered);
-                // new user
-                if (rs_userIsRegistered == 0) {
-                    userF.register(req.user, client, done_p, deferred()).done(function(rs_NewUser){
-                        if (rs_NewUser.name == 'error'){
-                            console.log("Error creating the new user: ");
-                            console.log(rs_NewUser);
+passport.use(new FoursquareStrategy({
+        clientID: FOURSQUARE_CLIENT_ID,
+        clientSecret: FOURSQUARE_CLIENT_SECRET,
+        callbackURL: "http://localhost:5000/auth/foursquare/callback"
+    },
+    function(accessToken, refreshToken, profile, done) {
+        var user = {
+                user_email: profile.emails[0].value,
+                full_name: profile.name.givenName+" "+profile.name.familyName,
+                gender: profile.gender,
+                fs_at: accessToken,
+                fs_id: profile.id
+            };
+        var rs_err, rs_user;
+        process.nextTick(function() {
+            pg.connect(process.env.DATABASE_URL, function(err, client, done_p) {
+                if (err) {
+                    rs_err = {error: "DB error."}
+                    console.error(err);
+                }
+                if (client) {
+                    userF.isRegistered(user.user_email, client, deferred()).done(function(rs_userIsRegistered){
+                        if ( rs_userIsRegistered === false ){
+                            console.log("new user");
+                            userF.register(user, client, done_p, deferred()).done(function(rs_userRegistered){
+                                rs_user = rs_userRegistered;
+                                console.log(rs_userRegistered);
+                            });
                         }else{
-                            console.log("User was registered!")
+                            rs_user = rs_userIsRegistered;
+                            console.log('returning user');
+                            console.log(rs_userIsRegistered);
                         }
                     });
                 }
             });
-            //the user is already registered at this point
-        }
-    });
-
-    console.log('User:', req.user.email, 'just accessed the /dashboard page!');
-    res.render('index', { title: 'Hey', message: 'Hello there!'});
-});
-
-
-passport.use(new FoursquareStrategy({
-    clientID: 'SJWUBSC0ACELTRJRVT5SYYUQXGMKCRGME5JLA5TDJX0MO1BE',
-    clientSecret: '3CK4B2U4GBQ1YQ2RQDTY5KHWBNZMZBCKSWGYSAN5BFSPJKCQ',
-    callbackURL: "http://localhost:5000/settings/auth/foursquare"
-  },
-  function(accessToken, refreshToken, profile, done) {
-    console.log("accessToken");
-    console.log(accessToken);
-    console.log("profile");
-    console.log(profile);
-    //TODO: update user in the DB
-    var user = {foursquareAt: accessToken, foursquareId: profile.id};
-    return done(err, user);
-  }
+            console.log("done");
+            return done(rs_err, rs_user);
+        });
+    }
 ));
 
-app.get('/settings', stormpath.loginRequired, function(req, res) {
-    res.render('settings', { title: 'Hey', message: 'Hello there!'});
-});
+// configure Express
+app.set('port', (process.env.PORT || 5000));
+app.set('view engine', 'jade');
+app.use(bodyParser.json());
+app.use(cookieParser())
+app.use(methodOverride('X-HTTP-Method-Override'));
+//TODO: use a real secret
+app.use(session({
+    genid: function(req) {
+        return Math.floor(Math.random()*110000) // use UUIDs for session IDs
+    },
+    secret: 'we are all wild things',
+    saveUninitialized: true,
+    resave: true
+}));
+app.use(passport.initialize());
+app.use(passport.session());
+
+
+
 
 app.get('/auth/foursquare', passport.authenticate('foursquare'));
 
-app.get('/settings/auth/foursquare',
-  passport.authenticate('foursquare', { failureRedirect: '/login' }),
+app.get('/auth/foursquare/callback',
+  passport.authenticate('foursquare', { failureRedirect: '/' }),
   function(req, res) {
     // Successful authentication, redirect home.
-    // res.redirect('/');
-    console.log("/settings/auth/foursquare")
-    res.send(req);
+    res.redirect('/dashboard');
   });
+
+function ensureAuthenticated(req, res, next) {
+    console.log("ensureAuthenticated");
+    console.log(req.isAuthenticated());
+    if (req.isAuthenticated()) {
+        console.log("isAuthenticated ");
+        console.log(req.isAuthenticated());
+        return next();
+    }
+    res.redirect('/');
+}
+
+//home page
+//TODO: UI
+app.get('/', function(req, res) {
+    console.log("/");
+   res.render('index');
+});
+
+//dashboard page
+//TODO: UI & table & graphics
+app.get('/dashboard', ensureAuthenticated, function(req, res) {
+    console.log("/dashboard");
+    res.render('dashboard', { user: req.user } );
+});
 
 //process and stores inconming emails
 app.post('/inbound', function(req, res){
@@ -144,7 +178,6 @@ app.post('/has_new_operations', function(req, res) {
     });
     // res.json(req.body);
 });
-
 
 //endpoint that the browser extension is goint to ask for new operations
 app.post('/save_browser_events', function(req, res) {
