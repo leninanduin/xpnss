@@ -19,11 +19,11 @@ var FOURSQUARE_CLIENT_ID = "SJWUBSC0ACELTRJRVT5SYYUQXGMKCRGME5JLA5TDJX0MO1BE"
 var FOURSQUARE_CLIENT_SECRET = "3CK4B2U4GBQ1YQ2RQDTY5KHWBNZMZBCKSWGYSAN5BFSPJKCQ";
 
 passport.serializeUser(function(user, done) {
-  done(null, user);
+    done(null, user);
 });
 
 passport.deserializeUser(function(obj, done) {
-  done(null, obj);
+    done(null, obj);
 });
 
 passport.use(new FoursquareStrategy({
@@ -39,31 +39,29 @@ passport.use(new FoursquareStrategy({
                 fs_at: accessToken,
                 fs_id: profile.id
             };
-        var rs_err, rs_user;
         process.nextTick(function() {
             pg.connect(process.env.DATABASE_URL, function(err, client, done_p) {
                 if (err) {
-                    rs_err = {error: "DB error."}
                     console.error(err);
+                    return done({error: "DB error."}, null);
                 }
                 if (client) {
                     userF.isRegistered(user.user_email, client, deferred()).done(function(rs_userIsRegistered){
                         if ( rs_userIsRegistered === false ){
                             console.log("new user");
                             userF.register(user, client, done_p, deferred()).done(function(rs_userRegistered){
-                                rs_user = rs_userRegistered;
-                                console.log(rs_userRegistered);
+                                // console.log(rs_userRegistered);
+                                return done(null, rs_userRegistered);
                             });
                         }else{
-                            rs_user = rs_userIsRegistered;
                             console.log('returning user');
-                            console.log(rs_userIsRegistered);
+                            // console.log(rs_userIsRegistered);
+                            return done(null, rs_userIsRegistered);
                         }
                     });
                 }
             });
-            console.log("done");
-            return done(rs_err, rs_user);
+
         });
     }
 ));
@@ -72,40 +70,30 @@ passport.use(new FoursquareStrategy({
 app.set('port', (process.env.PORT || 5000));
 app.set('view engine', 'jade');
 app.use(bodyParser.json());
-app.use(cookieParser())
-app.use(methodOverride('X-HTTP-Method-Override'));
+app.use(cookieParser('weareallwildthings'));
+app.use(methodOverride());
 //TODO: use a real secret
 app.use(session({
-    genid: function(req) {
-        return Math.floor(Math.random()*110000) // use UUIDs for session IDs
-    },
-    secret: 'we are all wild things',
-    saveUninitialized: true,
-    resave: true
+    secret: 'weareallwildthings',
+    resave: false,
+    saveUninitialized: true
 }));
 app.use(passport.initialize());
 app.use(passport.session());
 
+//APP PATH DEFINITION
 
-
-
-app.get('/auth/foursquare', passport.authenticate('foursquare'));
+app.get('/auth/foursquare', passport.authenticate('foursquare', { session: true }));
 
 app.get('/auth/foursquare/callback',
-  passport.authenticate('foursquare', { failureRedirect: '/' }),
-  function(req, res) {
+    passport.authenticate('foursquare', { failureRedirect: '/' }),
+    function(req, res) {
     // Successful authentication, redirect home.
     res.redirect('/dashboard');
-  });
+});
 
 function ensureAuthenticated(req, res, next) {
-    console.log("ensureAuthenticated");
-    console.log(req.isAuthenticated());
-    if (req.isAuthenticated()) {
-        console.log("isAuthenticated ");
-        console.log(req.isAuthenticated());
-        return next();
-    }
+    if (req.isAuthenticated()) {return next();}
     res.redirect('/');
 }
 
@@ -113,13 +101,15 @@ function ensureAuthenticated(req, res, next) {
 //TODO: UI
 app.get('/', function(req, res) {
     console.log("/");
-   res.render('index');
+    res.render('index');
 });
 
 //dashboard page
 //TODO: UI & table & graphics
 app.get('/dashboard', ensureAuthenticated, function(req, res) {
+
     console.log("/dashboard");
+    console.log(req.user);
     res.render('dashboard', { user: req.user } );
 });
 
