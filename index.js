@@ -15,6 +15,7 @@ var express = require('express')
 
 types.setTypeParser(1114, function(stringValue) {return stringValue;});
 
+//PASSPORT SETTINGS
 var FOURSQUARE_CLIENT_ID = "SJWUBSC0ACELTRJRVT5SYYUQXGMKCRGME5JLA5TDJX0MO1BE"
 var FOURSQUARE_CLIENT_SECRET = "3CK4B2U4GBQ1YQ2RQDTY5KHWBNZMZBCKSWGYSAN5BFSPJKCQ";
 
@@ -30,8 +31,7 @@ passport.use(new FoursquareStrategy({
         clientID: FOURSQUARE_CLIENT_ID,
         clientSecret: FOURSQUARE_CLIENT_SECRET,
         callbackURL: "http://localhost:5000/auth/foursquare/callback"
-    },
-    function(accessToken, refreshToken, profile, done) {
+    },function(accessToken, refreshToken, profile, done) {
         var user = {
                 user_email: profile.emails[0].value,
                 full_name: profile.name.givenName+" "+profile.name.familyName,
@@ -107,13 +107,12 @@ app.get('/', function(req, res) {
 //dashboard page
 //TODO: UI & table & graphics
 app.get('/dashboard', ensureAuthenticated, function(req, res) {
-
     console.log("/dashboard");
     console.log(req.user);
     res.render('dashboard', { user: req.user } );
 });
 
-//process and stores inconming emails
+//hadle and store inconming emails
 app.post('/inbound', function(req, res){
     if (!req.body) {
         return res.sendStatus(400)
@@ -145,6 +144,12 @@ app.post('/inbound', function(req, res){
         });
     }
     res.json(opv);
+});
+
+//handle ans store checkins
+app.post('/handle_fs_checkins', function(req, res){
+    console.log(req.body);
+    res.json(req.body);
 });
 
 //endpoint that the browser extension is goint to ask for new operations
