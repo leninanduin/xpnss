@@ -3,8 +3,6 @@ var express = require('express')
     , pg = require('pg')
     , types = pg.types
     , bodyParser = require('body-parser')
-    , moment = require('moment-timezone')
-    , deferred = require('deferred')
     , passport = require('passport')
     , cookieParser = require('cookie-parser')
     , methodOverride = require('method-override')
@@ -50,10 +48,10 @@ passport.use(new FoursquareStrategy({
                     return done({error: "DB error."}, null);
                 }
                 if (client) {
-                    userC.isRegistered(user.user_email, client, deferred()).done(function(rs_userIsRegistered){
+                    userC.isRegistered(user.user_email, client).done(function(rs_userIsRegistered){
                         if ( rs_userIsRegistered === false ){
                             console.log("new user");
-                            userC.register(user, client, done_p, deferred()).done(function(rs_userRegistered){
+                            userC.register(user, client, done_p).done(function(rs_userRegistered){
                                 // console.log(rs_userRegistered);
                                 return done(null, rs_userRegistered);
                             });
@@ -122,7 +120,7 @@ app.post('/inbound', function(req, res){
     if (!req.body) {
         return res.sendStatus(400);
     }
-    var opv = bankC.getOperatonValues(req.body, moment);
+    var opv = bankC.getOperatonValues(req.body);
 
     if (!opv.error){
         pg.connect(process.env.DATABASE_URL, function(err, client, done_p) {
@@ -132,10 +130,10 @@ app.post('/inbound', function(req, res){
             }
             if (client) {
                 // check if the user is registeren in the app DB, only emails from registered users are going to be sotored.
-                userC.isRegistered(req.body.From, client, deferred()).done(function(rs_userIsRegistered){
+                userC.isRegistered(req.body.From, client).done(function(rs_userIsRegistered){
                     if ( rs_userIsRegistered!==false ) {
                         opv.user_email = req.body.From;
-                        bankC.saveOperation(opv, client, done_p, deferred()).done(function(rs_saveOperation){
+                        bankC.saveOperation(opv, client, done_p).done(function(rs_saveOperation){
                             console.log('new cash operation');
                             //TODO: search for checkins
                             return res.json(rs_saveOperation);
@@ -154,17 +152,37 @@ app.post('/inbound', function(req, res){
 
 //handle ans store checkins
 app.post('/handle_fs_checkins', function(req, res){
-    pg.connect(process.env.DATABASE_URL, function(err, client, done) {
+    pg.connect(process.env.DATABASE_URL, function(err, client, done_p) {
         if (err) {
             console.error(err);
             return res.json({error: "DB error."});
         }
         if (client) {
-            var checkin_json = JSON.parse(req.body.checkin);
-            foursquareC.saveCheckin(checkin_json, moment, client, done, deferred()).done(function(rs_newCheckin) {
+            var checkin_json = JSON.parse(req.body.checkin),
+                user_json = JSON.parse(req.body.user),
+                checkin_rs;
+            foursquareC.saveCheckin(checkin_json, client, done_p).done(function(rs_newCheckin) {
                 console.log("new checkin!");
-                //TODO: search for new cash operation;
-                return res.json(rs_newCheckin);
+                checkin_rs = rs_newCheckin
+
+                checkin_rs.user_email = user_json.contact.email;
+                bankC.searchOperationForCheckhin(checkin_rs, client).done(function(rs_newOperation){
+                    console.log('searchOperationForCheckhin');
+                    var posible_auth_nums = [];
+                    if (rs_newOperation.rowCount > 0){
+                        for (var r in rs_newOperation.rows){
+                            posible_auth_nums.push(rs_newOperation.rows[r].auth_num);
+                        }
+                        checkin_rs.posible_auth_nums = posible_auth_nums.join(',');
+                        foursquareC.updateCheckin({id:checkin_rs.id, posible_auth_nums:checkin_rs.posible_auth_nums, is_procesed:true}, client, done_p).done(function(rs_updatedCheckin){
+                            console.log('checkin updated');
+                            return res.json(rs_updatedCheckin);
+                        });
+                    }else{
+                        console.log('checkin not updated');
+                        return res.json(checkin_rs);
+                    }
+                });
             });
         }
     });
@@ -178,10 +196,10 @@ app.post('/has_new_operations', function(req, res) {
             return res.json({error: "DB error."});
         }
         if (client) {
-            userC.isRegistered(req.body.user_email, client, deferred()).done(function(rs_userIsRegistered){
+            userC.isRegistered(req.body.user_email, client).done(function(rs_userIsRegistered){
                 if (rs_userIsRegistered) {
-                    bankC.userHasNewOperation(req.body.user_email, client, deferred(), moment).done(function(rs_userHasNewOperation){
-                        return res.json(rs_userHasNewOperation);
+                    bankC.searchOperationForBrowser(req.body.user_email, client).done(function(rs_newOperation){
+                        return res.json(rs_newOperation);
                     });
                 }else{
                     return res.json({error: "User is not registered."});
@@ -204,7 +222,7 @@ app.post('/save_browser_events', function(req, res) {
                 auth_num:req.body.authNum,
                 history_elements: req.body.historyItems
             };
-            browserC.saveHistory(ev, client, done, deferred()).done(function(rs_newHistory) {
+            browserC.saveHistory(ev, client, done).done(function(rs_newHistory) {
                 console.log("new event_browser!");
                 return res.json(rs_newHistory);
             });
